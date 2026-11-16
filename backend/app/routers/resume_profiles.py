@@ -33,18 +33,11 @@ def _get_s3_client(settings):
         raise HTTPException(
             status_code=500, detail="boto3 is required for S3 uploads") from e
 
-    aws_access_key_id = settings.effective_aws_access_key_id
-    aws_secret_access_key = settings.effective_aws_secret_access_key
 
-    if not aws_access_key_id or not aws_secret_access_key:
-        raise HTTPException(
-            status_code=500, detail="AWS credentials are not configured")
 
     return boto3.client(
         "s3",
         region_name=settings.AWS_REGION,
-        aws_access_key_id=aws_access_key_id,
-        aws_secret_access_key=aws_secret_access_key,
     )
 
 
@@ -230,7 +223,7 @@ def upload_resume_pdf(
             file.file,
             settings.AWS_S3_BUCKET_NAME,
             key,
-            ExtraArgs={"ContentType": "application/pdf", "ACL": "private"},
+            ExtraArgs={"ContentType": "application/pdf"},
         )
     except (BotoCoreError, ClientError) as e:
         raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")

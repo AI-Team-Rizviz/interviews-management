@@ -81,20 +81,13 @@ def _get_s3_client(settings):
         raise HTTPException(
             status_code=500, detail="boto3 is required for S3 uploads") from e
 
-    aws_access_key_id = settings.effective_aws_access_key_id
-    aws_secret_access_key = settings.effective_aws_secret_access_key
 
-    if not aws_access_key_id or not aws_secret_access_key:
-        raise HTTPException(
-            status_code=500, detail="AWS credentials are not configured")
 
-    cache_key = (aws_access_key_id, settings.AWS_REGION)
+    cache_key = settings.AWS_REGION
     if cache_key not in _s3_client_cache:
         _s3_client_cache[cache_key] = boto3.client(
             "s3",
             region_name=settings.AWS_REGION,
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
         )
     return _s3_client_cache[cache_key]
 
@@ -976,7 +969,7 @@ def upload_interview_document(
             file.file,
             settings.AWS_S3_BUCKET_NAME,
             key,
-            ExtraArgs={"ContentType": content_type, "ACL": "private"},
+            ExtraArgs={"ContentType": content_type},
         )
     except (BotoCoreError, ClientError) as e:
         raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")
@@ -1044,7 +1037,7 @@ def upload_interview_resume(
             file.file,
             settings.AWS_S3_BUCKET_NAME,
             key,
-            ExtraArgs={"ContentType": "application/pdf", "ACL": "private"},
+            ExtraArgs={"ContentType": "application/pdf"},
         )
     except (BotoCoreError, ClientError) as e:
         raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")
@@ -1357,7 +1350,6 @@ def _generate_highlighted_interview_document(
             Key=key,
             Body=highlighted_bytes,
             ContentType="application/pdf",
-            ACL="private",
         )
     except (BotoCoreError, ClientError) as e:
         raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")

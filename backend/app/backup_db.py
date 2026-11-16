@@ -110,18 +110,10 @@ def get_s3_client(settings: Settings):
             status_code=500, detail="boto3 is required for S3 backups"
         ) from e
 
-    key = settings.effective_aws_access_key_id
-    secret = settings.effective_aws_secret_access_key
-    if not key or not secret:
-        raise HTTPException(
-            status_code=500, detail="AWS credentials are not configured"
-        )
 
     return boto3.client(
         "s3",
         region_name=settings.AWS_REGION,
-        aws_access_key_id=key,
-        aws_secret_access_key=secret,
     )
 
 

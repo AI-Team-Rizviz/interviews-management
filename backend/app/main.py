@@ -58,17 +58,11 @@ def _configure_s3_cors(settings) -> None:
     """Apply CORS policy to the S3 bucket so browsers can PUT presigned URLs directly."""
     if not settings.AWS_S3_BUCKET_NAME:
         return
-    key_id = settings.effective_aws_access_key_id
-    secret = settings.effective_aws_secret_access_key
-    if not key_id or not secret:
-        return
     try:
         import boto3
         s3 = boto3.client(
             "s3",
             region_name=settings.AWS_REGION,
-            aws_access_key_id=key_id,
-            aws_secret_access_key=secret,
         )
         origins = settings.cors_origins_list or ["*"]
         s3.put_bucket_cors(

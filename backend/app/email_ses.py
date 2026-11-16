@@ -140,8 +140,6 @@ def make_presigned_doc_url(settings: "Settings", doc_url: Optional[str], expiry:
         s3 = boto3.client(
             "s3",
             region_name=settings.AWS_REGION,
-            aws_access_key_id=settings.effective_aws_access_key_id,
-            aws_secret_access_key=settings.effective_aws_secret_access_key,
         )
         return s3.generate_presigned_url(
             "get_object",
