@@ -231,8 +231,10 @@ export default function Sidebar({
       "/announcements",
     ],
   };
+  // Hidden from the sidebar for every role
+  const ALWAYS_HIDDEN = ["/messages", "/jarvis", "/activities"];
   const hiddenHrefs = useMemo(() => {
-    if (!role) return [];
+    if (!role) return ALWAYS_HIDDEN;
     let hidden: string[];
     if (role === "bd" && userProfile?.linked_to_superadmin) {
       hidden = ["/backup", "/users"];
@@ -244,7 +246,7 @@ export default function Sidebar({
       const idx = hidden.indexOf("/announcements");
       if (idx !== -1) hidden.splice(idx, 1);
     }
-    return hidden;
+    return [...hidden, ...ALWAYS_HIDDEN];
   }, [role, userProfile, canBroadcast]);
   const visibleNavItems = useMemo(
     () => NAV_ITEMS.filter((item) => !hiddenHrefs.includes(item.href)),
