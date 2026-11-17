@@ -133,22 +133,22 @@ export default function BackupPage() {
       />
 
       {runError && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-800 dark:text-red-200">
           {runError}
         </div>
       )}
 
       {lastResult && (
-        <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-          <p className="font-medium text-emerald-50">Backup completed</p>
-          <p className="mt-1 text-emerald-200/90">
-            Stored as <code className="rounded bg-black/20 px-1.5 py-0.5 text-xs">{lastResult.s3_key}</code> in bucket{" "}
-            <code className="rounded bg-black/20 px-1.5 py-0.5 text-xs">{lastResult.bucket}</code> ({formatBytes(lastResult.size_bytes)}).
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-900 dark:text-emerald-100">
+          <p className="font-medium text-emerald-950 dark:text-emerald-50">Backup completed</p>
+          <p className="mt-1 text-emerald-900/90 dark:text-emerald-200/90">
+            Stored as <code className="rounded bg-emerald-900/10 dark:bg-black/20 px-1.5 py-0.5 text-xs">{lastResult.s3_key}</code> in bucket{" "}
+            <code className="rounded bg-emerald-900/10 dark:bg-black/20 px-1.5 py-0.5 text-xs">{lastResult.bucket}</code> ({formatBytes(lastResult.size_bytes)}).
           </p>
           {lastResult.download_url && (
             <a
               href={lastResult.download_url}
-              className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-emerald-100 underline underline-offset-2 hover:text-white"
+              className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-emerald-800 dark:text-emerald-100 underline underline-offset-2 hover:text-emerald-950 dark:hover:text-white"
             >
               <Download size={14} aria-hidden />
               Download this backup
