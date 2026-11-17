@@ -15,6 +15,7 @@ from app.backup_db import (
 )
 from app.config import get_settings
 from app.database import get_session
+from app.email_ses import try_send_backup_email
 from app.deps import require_superadmin
 from app.models.user import User
 from app.schemas.backup import BackupCreatedResponse, BackupListItem, BackupListResponse
@@ -46,6 +47,14 @@ def create_database_backup(
     s3_key = build_backup_s3_key()
     upload_bytes_to_s3(settings, key=s3_key, body=blob)
 
+    try_send_backup_email(
+        settings,
+        filename=s3_key.rsplit("/", 1)[-1],
+        blob=blob,
+        s3_key=s3_key,
+        trigger="manual",
+    )
+
     now = datetime.now(timezone.utc)
     record_activity(
         session,
@@ -62,7 +71,7 @@ def create_database_backup(
         s3_key=s3_key,
         size_bytes=len(blob),
         created_at=now.isoformat().replace("+00:00", "Z"),
-        download_url=generate_backup_download_url(settings, key=s3_key),
+        download_url=generate_backup_download_url(settings, key=s3_key, as_attachment=True),
     )
 
 

@@ -10,6 +10,7 @@ from app.activity_log import record_activity
 from app.backup_db import build_backup_s3_key, run_pg_dump_gzip, upload_bytes_to_s3
 from app.config import Settings
 from app.database import engine
+from app.email_ses import try_send_backup_email
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,13 @@ def _run_nightly_backup(settings: Settings) -> None:
     )
     s3_key = build_backup_s3_key()
     upload_bytes_to_s3(settings, key=s3_key, body=blob)
+    try_send_backup_email(
+        settings,
+        filename=s3_key.rsplit("/", 1)[-1],
+        blob=blob,
+        s3_key=s3_key,
+        trigger="scheduled nightly",
+    )
 
     with Session(engine) as session:
         record_activity(

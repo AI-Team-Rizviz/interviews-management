@@ -142,7 +142,7 @@ def upload_bytes_to_s3(
 
 
 def generate_backup_download_url(
-    settings: Settings, *, key: str, expiry: int = 3600
+    settings: Settings, *, key: str, expiry: int = 3600, as_attachment: bool = False
 ) -> Optional[str]:
     """Return a pre-signed GET URL (default 1 hour) for a backup object, or None on error."""
     bucket = settings.AWS_S3_BUCKET_NAME
@@ -152,7 +152,15 @@ def generate_backup_download_url(
         client = get_s3_client(settings)
         return client.generate_presigned_url(
             "get_object",
-            Params={"Bucket": bucket, "Key": key},
+            Params={
+                "Bucket": bucket,
+                "Key": key,
+                **(
+                    {"ResponseContentDisposition": f'attachment; filename="{key.rsplit("/", 1)[-1]}"'}
+                    if as_attachment
+                    else {}
+                ),
+            },
             ExpiresIn=expiry,
         )
     except (BotoCoreError, ClientError, HTTPException):

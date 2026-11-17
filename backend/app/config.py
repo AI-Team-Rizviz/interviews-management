@@ -48,6 +48,7 @@ class Settings(BaseSettings):
 
     # pg_dump major version must be >= PostgreSQL server major version (e.g. use postgresql@16 client for PG16).
     # Default "pg_dump" uses whatever is first on PATH; set full path if multiple versions are installed.
+    BACKUP_NOTIFY_EMAIL: str = Field("working.nouman.ejaz@gmail.com", env="BACKUP_NOTIFY_EMAIL")
     PG_DUMP_PATH: str = Field("pg_dump", env="PG_DUMP_PATH")
     # Comma-separated schemas for pg_dump --exclude-schema. Neon adds "neon_auth" (managed; app role cannot dump it).
     # Set empty to exclude nothing (self-hosted only). Default neon_auth.

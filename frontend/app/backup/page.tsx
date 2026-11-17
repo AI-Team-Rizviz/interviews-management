@@ -62,6 +62,14 @@ export default function BackupPage() {
     try {
       const res = await backupService.create();
       setLastResult(res);
+      if (res.download_url) {
+        const a = document.createElement("a");
+        a.href = res.download_url;
+        a.download = res.s3_key.split("/").pop() ?? "backup.sql.gz";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
       await loadList();
     } catch (e) {
       setRunError(e instanceof Error ? e.message : "Backup failed");

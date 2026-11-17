@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 import html as html_module
 import logging
 import smtplib
 import socket
 import ssl
 from datetime import date, time
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import TYPE_CHECKING, Optional
@@ -54,16 +56,23 @@ def _send_via_ses(
     subject: str,
     html: str,
     plain: str,
+    attachments: Optional[list[tuple[str, bytes]]] = None,
 ) -> None:
     if not settings.AWS_SES_USERNAME or not settings.AWS_SES_PASSWORD:
         raise RuntimeError("AWS SES SMTP credentials are not set")
     host = f"email-smtp.{settings.AWS_REGION}.amazonaws.com"
-    msg = MIMEMultipart("alternative")
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"] = settings.AWS_SES_FROM_EMAIL
     msg["To"] = to_email
-    msg.attach(MIMEText(plain, "plain", "utf-8"))
-    msg.attach(MIMEText(html, "html", "utf-8"))
+    body = MIMEMultipart("alternative")
+    body.attach(MIMEText(plain, "plain", "utf-8"))
+    body.attach(MIMEText(html, "html", "utf-8"))
+    msg.attach(body)
+    for filename, data in attachments or []:
+        part = MIMEApplication(data, Name=filename)
+        part["Content-Disposition"] = f'attachment; filename="{filename}"'
+        msg.attach(part)
     with _IPv4SMTP(host, 587, timeout=30) as server:
         server.starttls(context=ssl.create_default_context())
         server.login(settings.AWS_SES_USERNAME, settings.AWS_SES_PASSWORD)
@@ -77,6 +86,7 @@ def _send_via_resend(
     subject: str,
     html: str,
     plain: str,
+    attachments: Optional[list[tuple[str, bytes]]] = None,
 ) -> None:
     if not settings.RESEND_API_KEY:
         raise RuntimeError("RESEND_API_KEY is not set")
@@ -92,8 +102,18 @@ def _send_via_resend(
             "subject": subject,
             "html": html,
             "text": plain,
+            **(
+                {
+                    "attachments": [
+                        {"filename": fn, "content": base64.b64encode(data).decode()}
+                        for fn, data in attachments
+                    ]
+                }
+                if attachments
+                else {}
+            ),
         },
-        timeout=30,
+        timeout=120,
     )
     if resp.status_code not in (200, 201):
         raise RuntimeError(f"Resend API error {resp.status_code}: {resp.text}")
@@ -106,13 +126,14 @@ def _dispatch_email(
     subject: str,
     html: str,
     plain: str,
+    attachments: Optional[list[tuple[str, bytes]]] = None,
 ) -> None:
     """Route to the active email provider."""
     provider = (settings.EMAIL_PROVIDER or "ses").lower()
     if provider == "resend":
-        _send_via_resend(settings, to_email=to_email, subject=subject, html=html, plain=plain)
+        _send_via_resend(settings, to_email=to_email, subject=subject, html=html, plain=plain, attachments=attachments)
     else:
-        _send_via_ses(settings, to_email=to_email, subject=subject, html=html, plain=plain)
+        _send_via_ses(settings, to_email=to_email, subject=subject, html=html, plain=plain, attachments=attachments)
 
 
 def _format_date(d: Optional[date]) -> str:
@@ -929,4 +950,41 @@ def try_send_password_reset_email(
         return True
     except Exception:
         logger.exception("Failed to send password reset email to %s", to_email)
+        return False
+
+
+def try_send_backup_email(
+    settings: "Settings",
+    *,
+    filename: str,
+    blob: bytes,
+    s3_key: str,
+    trigger: str,
+) -> bool:
+    """Email the backup file as an attachment to BACKUP_NOTIFY_EMAIL. Logs errors, does not raise."""
+    to_email = (settings.BACKUP_NOTIFY_EMAIL or "").strip()
+    if not to_email:
+        return False
+    if not _email_configured(settings):
+        logger.warning("Skipping backup email: email provider not configured (EMAIL_PROVIDER=%s)", settings.EMAIL_PROVIDER)
+        return False
+    size_mb = len(blob) / (1024 * 1024)
+    safe = html_module.escape
+    try:
+        _dispatch_email(
+            settings,
+            to_email=to_email,
+            subject=f"Database backup created — {filename}",
+            html=(
+                f"<p>A database backup was created ({safe(trigger)}).</p>"
+                f"<p>File: <code>{safe(filename)}</code> ({size_mb:.2f} MB)<br>"
+                f"S3 key: <code>{safe(s3_key)}</code></p><p>The backup is attached.</p>"
+            ),
+            plain=f"A database backup was created ({trigger}).\nFile: {filename} ({size_mb:.2f} MB)\nS3 key: {s3_key}\nThe backup is attached.",
+            attachments=[(filename, blob)],
+        )
+        logger.info("Sent backup email to %s (%s)", to_email, filename)
+        return True
+    except Exception:
+        logger.exception("Failed to send backup email to %s", to_email)
         return False
