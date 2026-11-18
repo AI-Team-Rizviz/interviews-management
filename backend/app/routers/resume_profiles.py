@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from botocore.exceptions import BotoCoreError, ClientError
 from app.config import get_settings
+from app.s3_storage import get_s3_client, object_key, presigned_get_url
 from app.deps import get_current_user, assert_write_access
 from sqlmodel import Session, select
 from app.database import get_session
@@ -28,17 +29,10 @@ router = APIRouter(prefix="/api/v1/resume-profiles",
 
 def _get_s3_client(settings):
     try:
-        import boto3
+        return get_s3_client(settings)
     except ImportError as e:
         raise HTTPException(
             status_code=500, detail="boto3 is required for S3 uploads") from e
-
-
-
-    return boto3.client(
-        "s3",
-        region_name=settings.AWS_REGION,
-    )
 
 
 def _to_read(profile: ResumeProfile, dept: Optional[Department], bd: Optional[BusinessDeveloper] = None) -> ResumeProfileRead:
@@ -53,7 +47,7 @@ def _to_read(profile: ResumeProfile, dept: Optional[Department], bd: Optional[Bu
         linkedin_url=profile.linkedin_url,
         github_url=profile.github_url,
         portfolio_url=profile.portfolio_url,
-        resume_url=profile.resume_url,
+        resume_url=presigned_get_url(get_settings(), profile.resume_url),
         location=profile.location,
         dob=profile.dob,
         phone=profile.phone,
@@ -139,7 +133,7 @@ def create_resume_profile(
         linkedin_url=data.linkedin_url,
         github_url=data.github_url,
         portfolio_url=data.portfolio_url,
-        resume_url=data.resume_url,
+        resume_url=object_key(data.resume_url),
         location=data.location,
         dob=data.dob,
         phone=data.phone,
@@ -228,7 +222,7 @@ def upload_resume_pdf(
     except (BotoCoreError, ClientError) as e:
         raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")
 
-    profile.resume_url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
+    profile.resume_url = key
     profile.updated_at = datetime.utcnow()
 
     session.add(profile)
@@ -256,6 +250,8 @@ def update_resume_profile(
         assert_dept_in_scope(current_user, data.department_id, session, only_roles={UserRole.TECH_STACK_MANAGER})
 
     update_data = data.model_dump(exclude_unset=True)
+    if "resume_url" in update_data:
+        update_data["resume_url"] = object_key(update_data["resume_url"])
     for key, value in update_data.items():
         setattr(profile, key, value)
     profile.updated_at = datetime.utcnow()

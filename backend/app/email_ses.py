@@ -149,27 +149,10 @@ def _format_time(t: Optional[time]) -> str:
 
 
 def make_presigned_doc_url(settings: "Settings", doc_url: Optional[str], expiry: int = 604800) -> Optional[str]:
-    """Return a pre-signed GET URL (default 7 days) for a private S3 document. Falls back to the raw URL on error."""
-    if not doc_url or not doc_url.strip():
-        return None
-    try:
-        import boto3
-        from urllib.parse import urlparse
-        key = urlparse(doc_url).path.lstrip("/")
-        if not key or not settings.AWS_S3_BUCKET_NAME:
-            return doc_url
-        s3 = boto3.client(
-            "s3",
-            region_name=settings.AWS_REGION,
-        )
-        return s3.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": settings.AWS_S3_BUCKET_NAME, "Key": key},
-            ExpiresIn=expiry,
-        )
-    except Exception:
-        logger.warning("Failed to generate presigned URL for %s; using raw URL", doc_url)
-        return doc_url
+    """Return a pre-signed GET URL (default 7 days, for emails) for a private S3 object key.
+    Never falls back to a permanent public URL."""
+    from app.s3_storage import presigned_get_url
+    return presigned_get_url(settings, doc_url, expiry)
 
 
 def interview_notification_html(

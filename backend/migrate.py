@@ -602,6 +602,18 @@ def migrate():
             ("ALTER TABLE lead_threads ADD COLUMN IF NOT EXISTS closed_sub_status VARCHAR(20);",
              "Migration successful! 'closed_sub_status' column added to 'lead_threads' table."),
 
+            # ── Private S3: store object keys, not permanent public URLs ───────────────
+            ("UPDATE interviews SET interview_doc_url = regexp_replace(regexp_replace(interview_doc_url, '^https?://[^/]+/', ''), '\\?.*$', '') WHERE interview_doc_url ~ '^https?://[^/]*amazonaws\\.com/';",
+             "Migration successful! 'interviews.interview_doc_url' converted from S3 URLs to object keys."),
+            ("UPDATE interviews SET resume_url = regexp_replace(regexp_replace(resume_url, '^https?://[^/]+/', ''), '\\?.*$', '') WHERE resume_url ~ '^https?://[^/]*amazonaws\\.com/';",
+             "Migration successful! 'interviews.resume_url' converted from S3 URLs to object keys."),
+            ("UPDATE interviews SET interview_doc_highlighted_url = regexp_replace(regexp_replace(interview_doc_highlighted_url, '^https?://[^/]+/', ''), '\\?.*$', '') WHERE interview_doc_highlighted_url ~ '^https?://[^/]*amazonaws\\.com/';",
+             "Migration successful! 'interviews.interview_doc_highlighted_url' converted from S3 URLs to object keys."),
+            ("UPDATE resume_profiles SET resume_url = regexp_replace(regexp_replace(resume_url, '^https?://[^/]+/', ''), '\\?.*$', '') WHERE resume_url ~ '^https?://[^/]*amazonaws\\.com/';",
+             "Migration successful! 'resume_profiles.resume_url' converted from S3 URLs to object keys."),
+            ("UPDATE candidates SET avatar_url = regexp_replace(regexp_replace(avatar_url, '^https?://[^/]+/', ''), '\\?.*$', '') WHERE avatar_url ~ '^https?://[^/]*amazonaws\\.com/';",
+             "Migration successful! 'candidates.avatar_url' converted from S3 URLs to object keys."),
+
         ]
         for sql, msg in migrations:
             try:

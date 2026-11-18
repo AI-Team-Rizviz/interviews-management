@@ -16,6 +16,8 @@ from app.status_utils import computed_status_for_interview_display
 from app.team_member_scope import candidate_id_for_team_member
 from app.lead_thread_utils import effective_lead_fields, load_lead_map
 from app.dept_scope import is_cross_dept
+from app.config import get_settings
+from app.s3_storage import presigned_get_url
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"], dependencies=[Depends(get_current_user)])
 
@@ -321,7 +323,7 @@ def get_dashboard_stats(
                 "linkedin_url": i.resume_profile.linkedin_url if i.resume_profile else None,
                 "github_url": i.resume_profile.github_url if i.resume_profile else None,
                 "portfolio_url": i.resume_profile.portfolio_url if i.resume_profile else None,
-                "resume_url": i.resume_profile.resume_url if i.resume_profile else None,
+                "resume_url": presigned_get_url(get_settings(), i.resume_profile.resume_url) if i.resume_profile else None,
                 "role": i.role,
                 "round": i.round,
                 "date": str(i.interview_date) if i.interview_date else None,

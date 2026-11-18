@@ -13,7 +13,7 @@ from sqlalchemy import false as sql_false
 from app.database import get_session
 from app.activity_log import record_activity
 from app.dept_scope import get_user_allowed_depts
-from app.email_ses import make_presigned_doc_url
+from app.s3_storage import get_s3_client, object_key, presigned_get_url
 from app.models.candidate import Candidate
 from app.models.department import Department
 from app.models.interview import Interview
@@ -48,16 +48,9 @@ def _serialize_dept_ids(dept_ids: Optional[list[uuid.UUID]]) -> Optional[str]:
 
 def _get_s3_client(settings):
     try:
-        import boto3
+        return get_s3_client(settings)
     except ImportError as e:
         raise HTTPException(status_code=500, detail="boto3 is required for S3 uploads") from e
-
-
-
-    return boto3.client(
-        "s3",
-        region_name=settings.AWS_REGION,
-    )
 
 
 def _build_candidate_read(candidate: Candidate, session: Session, settings) -> CandidateRead:
@@ -81,7 +74,7 @@ def _build_candidate_read(candidate: Candidate, session: Session, settings) -> C
         email=candidate.email,
         is_active=candidate.is_active,
         color=candidate.color,
-        avatar_url=make_presigned_doc_url(settings, candidate.avatar_url, expiry=3600),
+        avatar_url=presigned_get_url(settings, candidate.avatar_url),
         department_id=candidate.department_id,
         department_name=primary_dept.name if primary_dept else None,
         department_ids=dept_id_list if dept_id_list else None,
@@ -178,7 +171,7 @@ def list_candidates(
             email=c.email,
             is_active=c.is_active,
             color=c.color,
-            avatar_url=make_presigned_doc_url(settings, c.avatar_url, expiry=3600),
+            avatar_url=presigned_get_url(settings, c.avatar_url),
             department_id=c.department_id,
             department_name=primary_dept_name,
             department_ids=dept_id_list if dept_id_list else None,
@@ -447,7 +440,7 @@ def upload_candidate_avatar(
     except (BotoCoreError, ClientError) as e:
         raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")
 
-    candidate.avatar_url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
+    candidate.avatar_url = key
     candidate.updated_at = datetime.utcnow()
 
     session.add(candidate)
@@ -480,8 +473,7 @@ def delete_candidate_avatar(
 
     if candidate.avatar_url:
         try:
-            from urllib.parse import urlparse
-            key = urlparse(candidate.avatar_url).path.lstrip("/")
+            key = object_key(candidate.avatar_url)
             if key:
                 _get_s3_client(settings).delete_object(Bucket=settings.AWS_S3_BUCKET_NAME, Key=key)
         except (BotoCoreError, ClientError):

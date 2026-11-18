@@ -53,6 +53,7 @@ from app.status_utils import (
     compute_status,
 )
 from app.email_ses import try_send_interview_created_email, make_presigned_doc_url
+from app.s3_storage import get_s3_client, object_key, presigned_get_url
 from app.interview_doc_ai import (
     ai_failure_reason,
     DOCX_CONTENT_TYPE,
@@ -71,25 +72,12 @@ router = APIRouter(prefix="/api/v1/interviews",
                    tags=["Interviews"], dependencies=[Depends(get_current_user)])
 
 
-_s3_client_cache: dict = {}
-
-
 def _get_s3_client(settings):
     try:
-        import boto3
+        return get_s3_client(settings)
     except ImportError as e:
         raise HTTPException(
             status_code=500, detail="boto3 is required for S3 uploads") from e
-
-
-
-    cache_key = settings.AWS_REGION
-    if cache_key not in _s3_client_cache:
-        _s3_client_cache[cache_key] = boto3.client(
-            "s3",
-            region_name=settings.AWS_REGION,
-        )
-    return _s3_client_cache[cache_key]
 
 
 def _thread_primary_bd_id(session: Session, thread_id: uuid.UUID) -> Optional[uuid.UUID]:
@@ -110,6 +98,11 @@ def _reject_lead_only_interview_status(status: Optional[str]) -> None:
             status_code=400,
             detail="Dropped, closed, and dead are pipeline (lead) outcomes. Set them on the lead, not on this round's status field. Use Rejected on the round when that interview was a no.",
         )
+
+
+def _signed(value: Optional[str]) -> Optional[str]:
+    """Stored S3 key -> temporary presigned GET URL for the API response."""
+    return presigned_get_url(get_settings(), value)
 
 
 def _enrich_interview(interview: Interview, bd_dept_only: bool = False) -> dict:
@@ -134,9 +127,9 @@ def _enrich_interview(interview: Interview, bd_dept_only: bool = False) -> dict:
         "bd_id": interview.bd_id,
         "interviewer": interview.interviewer,
         "interview_link": interview.interview_link,
-        "interview_doc_url": interview.interview_doc_url,
-        "resume_url": interview.resume_url,
-        "interview_doc_highlighted_url": interview.interview_doc_highlighted_url,
+        "interview_doc_url": _signed(interview.interview_doc_url),
+        "resume_url": _signed(interview.resume_url),
+        "interview_doc_highlighted_url": _signed(interview.interview_doc_highlighted_url),
         "interview_doc_keywords": interview.interview_doc_keywords,
         "job_description": interview.job_description,
         "jd_highlights": interview.jd_highlights,
@@ -974,7 +967,7 @@ def upload_interview_document(
     except (BotoCoreError, ClientError) as e:
         raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")
 
-    interview.interview_doc_url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
+    interview.interview_doc_url = key
     # Clear any highlighted copy from a previous document — it no longer matches this upload.
     interview.interview_doc_highlighted_url = None
     interview.interview_doc_keywords = None
@@ -1042,7 +1035,7 @@ def upload_interview_resume(
     except (BotoCoreError, ClientError) as e:
         raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")
 
-    interview.resume_url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
+    interview.resume_url = key
     interview.updated_at = datetime.utcnow()
     session.add(interview)
     session.commit()
@@ -1156,8 +1149,7 @@ def confirm_upload(
         if not body.s3_key.startswith(expected_prefix_doc):
             raise HTTPException(
                 status_code=400, detail="Invalid s3_key for this interview")
-        url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{body.s3_key}"
-        interview.interview_doc_url = url
+        interview.interview_doc_url = body.s3_key
         # Clear any highlighted copy from a previous document — it no longer matches this upload.
         interview.interview_doc_highlighted_url = None
         interview.interview_doc_keywords = None
@@ -1169,8 +1161,7 @@ def confirm_upload(
         if not body.s3_key.startswith(expected_prefix_resume):
             raise HTTPException(
                 status_code=400, detail="Invalid s3_key for this interview")
-        url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{body.s3_key}"
-        interview.resume_url = url
+        interview.resume_url = body.s3_key
     else:
         raise HTTPException(
             status_code=400, detail="upload_type must be 'document' or 'resume'")
@@ -1186,9 +1177,7 @@ def confirm_upload(
 
 def _download_s3_object_bytes(settings, url: str) -> bytes:
     """Download an S3 object's raw bytes given its stored URL."""
-    from urllib.parse import urlparse
-
-    key = urlparse(url).path.lstrip("/")
+    key = object_key(url)
     if not key or not settings.AWS_S3_BUCKET_NAME:
         raise HTTPException(status_code=500, detail="Document not available")
     s3 = _get_s3_client(settings)
@@ -1354,7 +1343,7 @@ def _generate_highlighted_interview_document(
     except (BotoCoreError, ClientError) as e:
         raise HTTPException(status_code=500, detail=f"S3 upload failed: {e}")
 
-    interview.interview_doc_highlighted_url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
+    interview.interview_doc_highlighted_url = key
     interview.interview_doc_keywords = ", ".join(found_keywords)
     interview.updated_at = datetime.utcnow()
     session.add(interview)
@@ -1657,9 +1646,13 @@ def update_interview(
     # endpoints (which already trigger highlighting), but any client sending
     # interview_doc_url directly through this generic update should still get a
     # freshly-highlighted copy — and never keep serving a stale one from the old doc.
+    # Clients may echo back the presigned URL they received; only the bare key is stored.
+    for _f in ("interview_doc_url", "resume_url", "interview_doc_highlighted_url"):
+        if _f in update_data:
+            update_data[_f] = object_key(update_data[_f])
     doc_url_changed = (
         "interview_doc_url" in update_data
-        and update_data["interview_doc_url"] != interview.interview_doc_url
+        and update_data["interview_doc_url"] != object_key(interview.interview_doc_url)
     )
     if doc_url_changed:
         interview.interview_doc_highlighted_url = None

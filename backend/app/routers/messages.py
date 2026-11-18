@@ -18,6 +18,7 @@ from sqlmodel import Session, select
 from starlette.concurrency import run_in_threadpool
 
 from app.config import get_settings
+from app.s3_storage import DEFAULT_URL_EXPIRY, get_s3_client
 from app.database import engine, get_session
 from app.deps import get_current_user
 from app.messaging_utils import (
@@ -63,29 +64,17 @@ _ATTACHMENT_ALLOWED_TYPES = {
 }
 MAX_ATTACHMENTS_PER_MESSAGE = 10
 
-_s3_client_cache: dict = {}
-
 
 def _get_s3_client(settings):
     try:
-        import boto3
+        return get_s3_client(settings)
     except ImportError as e:
         raise HTTPException(status_code=500, detail="boto3 is required for S3 uploads") from e
 
 
-    cache_key = settings.AWS_REGION
-    if cache_key not in _s3_client_cache:
-        _s3_client_cache[cache_key] = boto3.client(
-            "s3",
-            region_name=settings.AWS_REGION,
-        )
-    return _s3_client_cache[cache_key]
-
-
-def _presign_get_url(s3_client, settings, key: str, expiry: int = 604800) -> str:
-    """Presigned GET (default 7 days) for a privately-stored attachment. Falls back to the
-    raw (inaccessible without bucket policy changes) URL if signing fails for any reason —
-    mirrors `make_presigned_doc_url` in app/email_ses.py."""
+def _presign_get_url(s3_client, settings, key: str, expiry: int = DEFAULT_URL_EXPIRY) -> Optional[str]:
+    """Temporary presigned GET for a privately-stored attachment. Returns None on failure —
+    never a permanent public URL."""
     try:
         return s3_client.generate_presigned_url(
             "get_object",
@@ -93,7 +82,7 @@ def _presign_get_url(s3_client, settings, key: str, expiry: int = 604800) -> str
             ExpiresIn=expiry,
         )
     except (BotoCoreError, ClientError):
-        return f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
+        return None
 
 
 class ContactOut(BaseModel):
@@ -108,7 +97,7 @@ class AttachmentOut(BaseModel):
     filename: str
     content_type: str
     size_bytes: int
-    url: str
+    url: Optional[str] = None
     thumbnail_url: Optional[str] = None
 
 
